@@ -1,0 +1,128 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+
+import ipywidgets as widgets
+from IPython.display import display
+import io
+
+# Create radio buttons
+radio_buttons = widgets.RadioButtons(
+    options=['Upload CSV', 'Read from path'],
+    description='Choose:',
+    disabled=False
+)
+display(radio_buttons)
+
+# Create file uploader (but don't display it yet)
+uploader = widgets.FileUpload(multiple=False)
+
+def load_data(button):
+    if radio_buttons.value == 'Upload CSV':
+        display(uploader)
+        [uploaded_file] = uploader.value
+        df = pd.read_csv(io.BytesIO(uploaded_file["content"]))
+    else:
+        df = pd.read_csv(r"C:\Users\Aarons Laptop\Desktop\Jupyter Notebooks\DSR data - scoring supply and demandMarket Matcher (24).csv")
+    # Then here you would continue with your calculations
+
+# Create a button that will load the data when clicked
+button = widgets.Button(description="Load Data")
+button.on_click(load_data)
+display(button)
+
+
+# List of columns to convert
+cols_to_convert = ['Auction clearance rate', 'Avg vendor discount', 'Days on market', 'Long term growth', 'Typical value', 'Vacancy rate', 'Gross rental yield']
+
+# Iterate over each column in the DataFrame
+for col in df.columns:
+
+    # If the column is of type object and in the list of columns to convert
+    if df[col].dtype == 'object' and col in cols_to_convert:
+
+        # If the column contains '%', remove it and convert the column to float
+        if df[col].astype(str).str.contains('%').any():
+            df[col] = df[col].str.replace('%', '').astype(float)
+
+        # If the column contains 'days', remove it and convert the column to integer
+        elif df[col].astype(str).str.contains('days').any():
+            df[col] = df[col].str.replace('days', '').astype(int)
+
+        # If the column contains '$', remove it and convert the column to float
+        elif df[col].astype(str).str.contains('$').any():
+            df[col] = df[col].str.replace('$', '').str.replace(',', '').astype(float)
+
+# For 'Long term growth', 'Vacancy rate', and 'Gross rental yield', we multiply by 10 to adjust the decimal places
+df['Long term growth'] *= 10
+df['Vacancy rate'] *= 10
+df['Gross rental yield'] *= 10
+
+
+
+columns_to_convert = [
+    "Percent renters in market",
+    "Percentage rent growth",
+    "Percentage sales growth",
+    "Percent sales by auction",
+    "Percent open for inspection",
+    "Percent stock on market"
+]
+
+for col in columns_to_convert:
+    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+
+def calculate_distance(val, target, direction, flexibility, importance):
+    # Handle single-value targets
+    if not isinstance(target, tuple):
+        raw_distance = abs(val - target) if direction == 'exact' else max(0, target - val)
+    # Handle range targets
+    else:
+        raw_distance = max(0, val - target[1]) if val > target[1] else max(0, target[0] - val)
+    
+    # Calculate final distance using flexibility and importance
+    final_distance = raw_distance / (flexibility * importance)
+    
+    return final_distance
+
+
+targets = {
+    'Percent renters in market': ((15, 35), 'between', 0.5, 0.5),
+    'Vacancy rate': (2, 'less', 0.2, 1),
+    'Auction clearance rate': (60, 'greater', 1, 0.2),
+    'Days on market': (50, 'less', 0.5, 0.7),
+    'Avg vendor discount': (5, 'less', 0.4, 0.5),
+    'Percent stock on market': (1.3, 'less', 0.4, 0.7),
+    'Online search interest': (400, 'greater', 0.5, 0.7),
+    'Gross rental yield': (5, 'greater', 0.5, 1),
+    'Demand to Supply Ratio': (55, 'greater', 0.2, 1),
+    'Long term growth': (50, 'less', 0.2, 1),
+    'Percentage rent growth': (5, 'greater', 0.5, 0.5),
+}
+
+
+# Calculate the score for each row
+df['Score'] = 0
+for factor, (target, direction, flexibility, importance) in targets.items():
+    df['Score'] += df[factor].apply(calculate_distance, args=(target, direction, flexibility, importance))
+
+# Rank the rows by score
+df['Rank'] = df['Score'].rank(method='min')
+
+# Sort the DataFrame by rank
+df.sort_values('Rank', inplace=True)
+
+# Sort dataframe by score in descending order and reset index
+df_sorted = df.sort_values(by='Score', ascending=False).reset_index(drop=True)
+
+
+
+df_sorted['Rank'] = df_sorted['Score'].rank(ascending=False)
+df_sorted = df_sorted.sort_values(by='Rank')
+display(df_sorted)
+pd.set_option('display.max_rows', 500)
+
